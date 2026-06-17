@@ -1,0 +1,205 @@
+@using System.Text.Json
+@inject IConfiguration Configuration
+@model SafeRouteViewModel
+
+@{
+    ViewData["Title"] = "SafeRoute";
+    var googleMapsKey = Configuration["GoogleMaps:ApiKey"];
+    var mapPayload = JsonSerializer.Serialize(new
+    {
+        routes = Model.Routes.Select(route => new
+        {
+            route.Name,
+            route.SafetyScore,
+            Color = route.Name == Model.RecommendedRoute?.Name ? "#16865d" : "#c4483e",
+            IsRecommended = route.Name == Model.RecommendedRoute?.Name,
+            coordinates = route.Coordinates.Select(point => new[] { point.Latitude, point.Longitude })
+        }),
+        crimeAreas = Model.CrimeAreas.Select(area => new
+        {
+            area.Name,
+            area.CrimeScore,
+            area.PolicePrecinct,
+            area.RiskSignal,
+            coordinates = new[] { area.Coordinates.Latitude, area.Coordinates.Longitude }
+        })
+    });
+}
+
+@section Styles {
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIINfQb8Hf9EIX3eoU2AT3zEYCwJkW2Vg="
+          crossorigin="" />
+}
+
+<section class="hero-band">
+    <div>
+        <p class="eyebrow">SafeRoute MVC prototype</p>
+        <h1>Find a safer route through Johannesburg</h1>
+        <p class="hero-copy">
+            Type a Gauteng start point and destination. SafeRoute scores possible route corridors using Johannesburg-focused crime indicators, then shows the safer option on Google Maps.
+        </p>
+    </div>
+    <div class="hero-badge">
+        <span></span>
+        ASP.NET MVC + Google Maps
+    </div>
+</section>
+
+<section class="planner-panel">
+    <form asp-action="FindSafeRoute" method="post" class="route-form">
+        @Html.AntiForgeryToken()
+        <div class="field">
+            <label asp-for="Request.Start">Start location</label>
+            <input asp-for="Request.Start" name="Start" placeholder="e.g. Orlando West" autocomplete="off" />
+        </div>
+        <div class="field">
+            <label asp-for="Request.Destination">Destination</label>
+            <input asp-for="Request.Destination" name="Destination" placeholder="e.g. Bara Mall" autocomplete="off" />
+        </div>
+        <div class="field">
+            <label asp-for="Request.TravelTime">Travel time</label>
+            <input asp-for="Request.TravelTime" name="TravelTime" placeholder="e.g. After 19:00" autocomplete="off" />
+        </div>
+        <button type="submit">Find Safe Route</button>
+    </form>
+
+    @if (!string.IsNullOrWhiteSpace(Model.InputWarning))
+    {
+        <p class="input-warning">@Model.InputWarning</p>
+    }
+
+    <div class="recommendation">
+        <p class="muted">Recommended route</p>
+        <div>
+            <strong>@Model.RecommendedRoute?.Name</strong>
+            <span>@Model.RecommendedRoute?.SafetyScore</span>
+        </div>
+        <p>@Model.RecommendedRoute?.Recommendation</p>
+    </div>
+</section>
+
+<section class="result-grid">
+    <div class="map-card">
+        <div id="safeRouteMap"></div>
+    </div>
+
+    <aside class="analysis-card">
+        <p class="eyebrow">GPT-4o route reasoning</p>
+        <h2>Input -> Crime Data -> Safety Score -> Route</h2>
+        <div class="flow-step"><span>1</span><p><strong>Input</strong>@Model.Request.Start to @Model.Request.Destination</p></div>
+        <div class="flow-step"><span>2</span><p><strong>Crime Data</strong>Johannesburg SAPS-style area scores and police precinct signals.</p></div>
+        <div class="flow-step"><span>3</span><p><strong>GPT-4o Analysis</strong>@Model.AiExplanation.ModelName explains the recommendation using the route scores and crime signals.</p></div>
+        <div class="flow-step"><span>4</span><p><strong>Output</strong>@Model.AnalysisSummary</p></div>
+    </aside>
+</section>
+
+<section class="ai-panel">
+    <div class="ai-header">
+        <div>
+            <p class="eyebrow">AI safety explanation</p>
+            <h2>@Model.AiExplanation.ModelName</h2>
+        </div>
+        <span class="ai-mode @(Model.AiExplanation.UsedLiveGpt4o ? "live" : "")">
+            @(Model.AiExplanation.UsedLiveGpt4o ? "Live GPT-4o" : "Demo fallback")
+        </span>
+    </div>
+    <p class="ai-summary">@Model.AiExplanation.Summary</p>
+    <div class="ai-grid">
+        <div>
+            <h3>Why this route</h3>
+            <ul>
+                @foreach (var reason in Model.AiExplanation.Reasons)
+                {
+                    <li>@reason</li>
+                }
+            </ul>
+        </div>
+        <div>
+            <h3>Safety advisory</h3>
+            <p>@Model.AiExplanation.SafetyAdvisory</p>
+            <h3>Data validation</h3>
+            <p>@Model.AiExplanation.DataValidationNote</p>
+        </div>
+    </div>
+</section>
+
+<section class="route-options">
+    @foreach (var route in Model.Routes)
+    {
+        var isRecommended = route.Name == Model.RecommendedRoute?.Name;
+        <article class="route-option @(isRecommended ? "selected" : "")">
+            <div class="route-heading">
+                <h3>@route.Name</h3>
+                <span style="background:@(isRecommended ? "#16865d" : "#c4483e")">@route.SafetyScore</span>
+            </div>
+            <p>@route.Summary</p>
+            <ul>
+                <li>@route.Recommendation</li>
+                <li>Areas crossed: @string.Join(", ", route.AreasCrossed)</li>
+            </ul>
+        </article>
+    }
+</section>
+
+<section class="safeguard-panel">
+    <div>
+        <p class="eyebrow">Ethical safeguards</p>
+        <h2>Built into the prototype</h2>
+    </div>
+    <ul>
+        @foreach (var safeguard in Model.EthicalSafeguards)
+        {
+            <li>@safeguard</li>
+        }
+    </ul>
+</section>
+
+<section class="data-panel">
+    <div>
+        <p class="eyebrow">Johannesburg police data</p>
+        <h2>Prototype evidence base</h2>
+        <p>@Model.EvidenceNote</p>
+    </div>
+    <div class="sources">
+        @foreach (var source in Model.DataSources)
+        {
+            <span>@source</span>
+        }
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Area</th>
+                <th>Police precinct</th>
+                <th>Crime score</th>
+                <th>Risk signal</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var area in Model.CrimeAreas)
+            {
+                <tr>
+                    <td>@area.Name</td>
+                    <td>@area.PolicePrecinct</td>
+                    <td>@area.CrimeScore</td>
+                    <td>@area.RiskSignal</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</section>
+
+@section Scripts {
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+            crossorigin=""></script>
+    @if (!string.IsNullOrWhiteSpace(googleMapsKey))
+    {
+        <script src="https://maps.googleapis.com/maps/api/js?key=@googleMapsKey"></script>
+    }
+    <script>
+        window.safeRouteData = @Html.Raw(mapPayload);
+    </script>
+    <script src="~/js/saferoute-map.js" asp-append-version="true"></script>
+}
