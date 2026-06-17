@@ -1,0 +1,181 @@
+@model SafeRoute.Models.RouteResult
+@{ ViewData["Title"] = "Safe Route Results"; }
+
+@{
+    string SafetyClass(int score) => score >= 7 ? "safety-high" : score >= 4 ? "safety-mid" : "safety-low";
+    string SafetyLabel(int score) => score >= 7 ? "Lower Risk" : score >= 4 ? "Moderate Risk" : "High Risk";
+}
+
+<div class="row mb-3 align-items-center">
+    <div class="col">
+        <h2 class="fw-bold mb-0">
+            <span style="color:var(--sr-green)">@Model.Request.Origin</span>
+            &rarr;
+            <span style="color:var(--sr-green)">@Model.Request.Destination</span>
+        </h2>
+        <small class="text-muted">@Model.Request.TimeOfDay travel &bull; @Model.Options.Count route(s) analysed</small>
+    </div>
+    <div class="col-auto">
+        <a asp-action="Index" class="btn btn-outline-secondary btn-sm">&#8592; New search</a>
+    </div>
+</div>
+
+<div class="row g-3">
+    <!-- Map -->
+    <div class="col-lg-8">
+        <div class="sr-card p-2">
+            <div id="map"></div>
+            <div class="mt-2 d-flex gap-3 px-1" style="font-size:.8rem;">
+                <span><span style="display:inline-block;width:14px;height:4px;background:#1db954;border-radius:2px;vertical-align:middle;"></span> Safer route</span>
+                <span><span style="display:inline-block;width:14px;height:4px;background:#ffc107;border-radius:2px;vertical-align:middle;"></span> Moderate risk</span>
+                <span><span style="display:inline-block;width:14px;height:4px;background:#ff5555;border-radius:2px;vertical-align:middle;"></span> High risk</span>
+                <span><span style="display:inline-block;width:12px;height:12px;background:rgba(255,50,50,.4);border-radius:50%;border:1px solid #ff5555;vertical-align:middle;"></span> Crime hotspot</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sidebar -->
+    <div class="col-lg-4">
+
+        <!-- AI Safety Assessment -->
+        <div class="sr-card">
+            <h6 class="fw-bold mb-2" style="color:var(--sr-green);">&#129302; AI Safety Assessment</h6>
+            <div class="ai-box">
+                <p class="mb-0" style="font-size:.9rem;line-height:1.6;">@Model.AiSafetyAssessment</p>
+            </div>
+        </div>
+
+        <!-- Route Options -->
+        @foreach (var route in Model.Options)
+        {
+            var isRecommended = route.Id == Model.RecommendedOptionId;
+            <div class="sr-card route-tab @(isRecommended ? "active-route" : "")" id="tab-@route.Id" style="cursor:pointer;" onclick="selectRoute('@route.Id')">
+                <div class="d-flex justify-content-between align-items-start mb-1">
+                    <div>
+                        <strong>@route.Label</strong>
+                        @if (isRecommended)
+                        {
+                            <span class="badge ms-2" style="background:var(--sr-green);color:#000;font-size:.7rem;">RECOMMENDED</span>
+                        }
+                    </div>
+                    <span class="safety-badge @SafetyClass(route.SafetyScore)">@SafetyLabel(route.SafetyScore)</span>
+                </div>
+                <div class="text-muted small mb-2">
+                    @route.DistanceKm km &bull; ~@route.DurationMinutes min on foot
+                </div>
+                <div class="d-flex gap-1 flex-wrap">
+                    @foreach (var note in route.SafetyNotes)
+                    {
+                        <div class="small" style="color:#ccc;">&bull; @note</div>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- Nearby Incidents -->
+        @if (Model.NearbyIncidents.Any())
+        {
+            <div class="sr-card">
+                <h6 class="fw-bold mb-2" style="color:#ffc107;">&#9888; Nearby Incidents (SAPS 2023)</h6>
+                @foreach (var inc in Model.NearbyIncidents)
+                {
+                    <div class="d-flex justify-content-between small py-1 border-bottom border-secondary">
+                        <span>@inc.Station &mdash; @inc.Category</span>
+                        <span class="text-muted">@inc.Count</span>
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- Ethical Disclaimer -->
+        <div class="disclaimer">
+            <strong style="color:#ffc107;">&#9432; Data Disclaimer</strong><br />
+            Crime data is sourced from SAPS 2023 statistics and may not reflect current conditions.
+            SafeRoute provides guidance only — always trust your instincts and stay alert.
+            <a href="/Data/Transparency" class="text-warning" target="_blank">View full dataset</a>
+        </div>
+
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    const routes = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Options.Select(r => new {
+        id = r.Id,
+        score = r.SafetyScore,
+        polyline = r.Polyline
+    })));
+
+    const incidents = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.NearbyIncidents.Select(i => new {
+        lat = i.Latitude,
+        lon = i.Longitude,
+        station = i.Station,
+        category = i.Category,
+        count = i.Count
+    })));
+
+    const recommendedId = "@Model.RecommendedOptionId";
+
+    const map = L.map('map');
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 18
+    }).addTo(map);
+
+    const allBounds = [];
+    const polylineLayers = {};
+
+    function routeColor(score) {
+        if (score >= 7) return '#1db954';
+        if (score >= 4) return '#ffc107';
+        return '#ff5555';
+    }
+
+    routes.forEach(r => {
+        if (!r.polyline || r.polyline.length === 0) return;
+        const isRec = r.id === recommendedId;
+        const line = L.polyline(r.polyline, {
+            color: routeColor(r.score),
+            weight: isRec ? 6 : 3,
+            opacity: isRec ? 0.95 : 0.45,
+            dashArray: isRec ? null : '8,6'
+        }).addTo(map);
+        polylineLayers[r.id] = line;
+        r.polyline.forEach(p => allBounds.push(p));
+    });
+
+    // Origin & destination markers
+    if (routes.length > 0 && routes[0].polyline && routes[0].polyline.length > 0) {
+        const first = routes[0].polyline[0];
+        const last  = routes[0].polyline[routes[0].polyline.length - 1];
+        const greenIcon = L.divIcon({ html: '<div style="background:var(--sr-green);width:14px;height:14px;border-radius:50%;border:2px solid #fff;"></div>', iconSize:[14,14], className:'' });
+        const redIcon   = L.divIcon({ html: '<div style="background:#ff5555;width:14px;height:14px;border-radius:50%;border:2px solid #fff;"></div>', iconSize:[14,14], className:'' });
+        L.marker(first, { icon: greenIcon }).addTo(map).bindPopup("<b>Start</b>: @Model.Request.Origin");
+        L.marker(last,  { icon: redIcon   }).addTo(map).bindPopup("<b>End</b>: @Model.Request.Destination");
+    }
+
+    // Crime hotspot circles
+    incidents.forEach(i => {
+        const radius = Math.min(600, 100 + i.count * 0.3);
+        L.circle([i.lat, i.lon], {
+            radius: radius,
+            color: '#ff5555',
+            fillColor: '#ff3232',
+            fillOpacity: 0.22,
+            weight: 1
+        }).addTo(map).bindPopup(`<b>${i.station}</b><br>${i.category}<br><b>${i.count}</b> incidents (2023)`);
+    });
+
+    if (allBounds.length > 0) map.fitBounds(allBounds, { padding: [40, 40] });
+
+    function selectRoute(id) {
+        document.querySelectorAll('.route-tab').forEach(el => el.classList.remove('active-route'));
+        document.getElementById('tab-' + id)?.classList.add('active-route');
+        Object.entries(polylineLayers).forEach(([rid, line]) => {
+            const isSelected = rid === id;
+            line.setStyle({ weight: isSelected ? 6 : 3, opacity: isSelected ? 0.95 : 0.4, dashArray: isSelected ? null : '8,6' });
+            if (isSelected) line.bringToFront();
+        });
+    }
+</script>
+}

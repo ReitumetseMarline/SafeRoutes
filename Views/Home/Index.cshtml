@@ -1,8 +1,61 @@
-﻿@{
-    ViewData["Title"] = "Home Page";
-}
+@model SafeRoute.Models.RouteRequest
+@{ ViewData["Title"] = "Find Safe Route"; }
 
-<div class="text-center">
-    <h1 class="display-4">Welcome</h1>
-    <p>Learn about <a href="https://learn.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p>
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="text-center mb-4">
+            <h1 class="fw-bold" style="font-size:2.2rem;">Find your <span style="color:var(--sr-green)">safest</span> route</h1>
+            <p class="text-muted">AI-powered safety routing using SAPS crime data</p>
+        </div>
+
+        <div class="sr-card">
+            @if (!ViewData.ModelState.IsValid)
+            {
+                <div class="alert alert-danger">
+                    @Html.ValidationSummary(false)
+                </div>
+            }
+
+            <form asp-action="FindRoute" method="post">
+                @Html.AntiForgeryToken()
+
+                <div class="mb-3">
+                    <label asp-for="Origin" class="form-label fw-semibold">From</label>
+                    <input asp-for="Origin" class="form-control form-control-lg"
+                           placeholder="e.g. Soweto, Johannesburg" autocomplete="off" />
+                    <span asp-validation-for="Origin" class="text-danger small"></span>
+                </div>
+
+                <div class="mb-3">
+                    <label asp-for="Destination" class="form-label fw-semibold">To</label>
+                    <input asp-for="Destination" class="form-control form-control-lg"
+                           placeholder="e.g. Sandton, Johannesburg" autocomplete="off" />
+                    <span asp-validation-for="Destination" class="text-danger small"></span>
+                </div>
+
+                <div class="mb-4">
+                    <label asp-for="TimeOfDay" class="form-label fw-semibold">When are you travelling?</label>
+                    <select asp-for="TimeOfDay" class="form-select form-select-lg"
+                            asp-items="Html.GetEnumSelectList<SafeRoute.Models.TimeOfDay>()"></select>
+                </div>
+
+                <div class="d-grid">
+                    <button type="submit" class="btn btn-safe btn-lg">
+                        Find Safest Route &rarr;
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <div class="text-center mt-3">
+            <small class="text-muted">
+                Routes scored using SAPS 2023 crime statistics &bull;
+                <a href="/Data/Transparency" class="text-muted" target="_blank">View data source</a>
+            </small>
+        </div>
+    </div>
 </div>
+
+@section Scripts {
+    @{ await Html.RenderPartialAsync("_ValidationScriptsPartial"); }
+}
